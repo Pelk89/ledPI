@@ -1,7 +1,7 @@
 import RPi.GPIO as GPIO
 import board
 import neopixel
-from time import time
+from time import time, sleep
 from multiprocessing import Process, Value
 from ctypes import c_bool
 
@@ -10,24 +10,26 @@ from pn532 import *
 pixels = neopixel.NeoPixel(board.D18, 32)
 
 def pulsate(color, duration, run_pulsate):
-    start_time = time()
-    while time() - start_time < duration and run_pulsate.value:
-        for i in range(0, 101):
-            for j in range(len(pixels)):
-                pixels[j] = (int(color[0] * i / 100), int(color[1] * i / 100), int(color[2] * i / 100))
-        for i in range(100, -1, -1):
-            for j in range(len(pixels)):
-                pixels[j] = (int(color[0] * i / 100), int(color[1] * i / 100), int(color[2] * i / 100))
+    while run_pulsate.value:
+        start_time = time()
+        while time() - start_time < duration and run_pulsate.value:
+            for i in range(0, 101):
+                for j in range(len(pixels)):
+                    pixels[j] = (int(color[0] * i / 100), int(color[1] * i / 100), int(color[2] * i / 100))
+            for i in range(100, -1, -1):
+                for j in range(len(pixels)):
+                    pixels[j] = (int(color[0] * i / 100), int(color[1] * i / 100), int(color[2] * i / 100))
 
 def read_nfc_tag(run_pulsate):
-    while run_pulsate.value:
+    while True:
         uid = pn532.read_passive_target(timeout=0.5)
         if uid:
             print('Found card with UID:', [hex(i) for i in uid])
             run_pulsate.value = False
             for i in range(len(pixels)):
                 pixels[i] = (0, 255, 0)
-            break
+        else:
+            run_pulsate.value = True
 
 if __name__ == '__main__':
     try:
@@ -47,8 +49,14 @@ if __name__ == '__main__':
         pulsate_process.start()
         read_nfc_process.start()
 
-        pulsate_process.join()
-        read_nfc_process.join()
+        while True:
+            if not run_pulsate.value and pulsate_process.is_alive():
+                pulsate_process.terminate()
+            elif run_pulsate.value and not pulsate_process.is_alive():
+                pulsate_process = Process(target=pulsate, args=((255, 255, 255), 5, run_pulsate))
+                pulsate_process.start()
+            sleep(0.1)
+
     except Exception as e:
         print(e)
     finally:
